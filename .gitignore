@@ -39,3 +39,6 @@ Thumbs.db
 
 # 其他
 *.log
+
+# Templates (user-specific)
+templates/
