@@ -1,0 +1,13 @@
+# 答题卡识别系统依赖
+
+# 图像处理
+opencv-python>=4.5.0
+numpy>=1.19.0
+imutils>=0.5.4
+
+# OCR 识别（主观题功能）
+rapidocr-onnxruntime>=1.2.0
+
+# 可选：如果需要 PaddleOCR（Python 3.12 及以下）
+# paddleocr>=2.6.0
+# paddlepaddle>=2.4.0
