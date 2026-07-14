@@ -3,7 +3,7 @@ import numpy as np
 
 
 class ROISelector:
-    def __init__(self, window_name="选择区域", max_width=1000, max_height=700):
+    def __init__(self, window_name="Select Region", max_width=1000, max_height=700):
         self.window_name = window_name
         self.max_width = max_width
         self.max_height = max_height
@@ -57,7 +57,7 @@ class ROISelector:
         cv2.putText(self.clone, help_text, (10, self.clone.shape[0] - 15),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    def select_roi(self, image, prompt_text=None):
+    def select_roi(self, image, prompt_text=None, allow_multiple=False):
         self.original_image = image.copy()
         self.prompt_text = prompt_text
         self.ref_point = []
@@ -69,55 +69,102 @@ class ROISelector:
             img_bgr = self.original_image.copy()
 
         self.display_image, self.scale = self._scale_image(img_bgr)
-        self._redraw_with_prompt()
 
+        saved_regions = []
+        if allow_multiple:
+            self.prompt_text = (prompt_text or "") + "\n[Enter]确认  [N]继续选下一个区域"
+
+        self._redraw_with_prompt()
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self._mouse_callback)
         cv2.imshow(self.window_name, self.clone)
 
         while True:
             key = cv2.waitKey(0) & 0xFF
+
             if key == 13 and len(self.ref_point) == 2:
-                break
+                if allow_multiple:
+                    saved_regions.append(self._to_original_roi(self.ref_point))
+                    self.ref_point = []
+                    self._redraw_with_prompt()
+                    for i, roi in enumerate(saved_regions):
+                        rx1, ry1, rx2, ry2 = self._scale_roi_to_display(roi)
+                        cv2.rectangle(self.clone, (rx1, ry1), (rx2, ry2), (0, 255, 0), 2)
+                        cv2.putText(self.clone, f"#{i+1}", (rx1 + 5, ry1 + 20),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    cv2.imshow(self.window_name, self.clone)
+                else:
+                    break
+
+            elif key == ord("n") or key == ord("N"):
+                if allow_multiple and saved_regions:
+                    break
+
             elif key == ord("c") or key == ord("C"):
                 self.ref_point = []
                 self._redraw_with_prompt()
+                for i, roi in enumerate(saved_regions):
+                    rx1, ry1, rx2, ry2 = self._scale_roi_to_display(roi)
+                    cv2.rectangle(self.clone, (rx1, ry1), (rx2, ry2), (0, 255, 0), 2)
+                    cv2.putText(self.clone, f"#{i+1}", (rx1 + 5, ry1 + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                 cv2.imshow(self.window_name, self.clone)
+
             elif key == ord("r") or key == ord("R"):
+                if allow_multiple:
+                    if saved_regions:
+                        saved_regions.pop()
                 self.ref_point = []
                 self._redraw_with_prompt()
+                for i, roi in enumerate(saved_regions):
+                    rx1, ry1, rx2, ry2 = self._scale_roi_to_display(roi)
+                    cv2.rectangle(self.clone, (rx1, ry1), (rx2, ry2), (0, 255, 0), 2)
+                    cv2.putText(self.clone, f"#{i+1}", (rx1 + 5, ry1 + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                 cv2.imshow(self.window_name, self.clone)
+
             elif key == 27:
-                self.ref_point = []
+                saved_regions = []
                 break
 
         cv2.destroyWindow(self.window_name)
 
-        if len(self.ref_point) == 2:
-            x1, y1 = self.ref_point[0]
-            x2, y2 = self.ref_point[1]
-            x1, x2 = sorted([x1, x2])
-            y1, y2 = sorted([y1, y2])
-
-            orig_x1 = int(x1 / self.scale)
-            orig_y1 = int(y1 / self.scale)
-            orig_x2 = int(x2 / self.scale)
-            orig_y2 = int(y2 / self.scale)
-
-            h, w = self.original_image.shape[:2]
-            orig_x1 = max(0, min(orig_x1, w - 1))
-            orig_y1 = max(0, min(orig_y1, h - 1))
-            orig_x2 = max(0, min(orig_x2, w - 1))
-            orig_y2 = max(0, min(orig_y2, h - 1))
-
-            return (orig_x1, orig_y1, orig_x2, orig_y2)
+        if allow_multiple:
+            return saved_regions if saved_regions else None
         else:
+            if len(self.ref_point) == 2:
+                return self._to_original_roi(self.ref_point)
             return None
 
+    def _to_original_roi(self, ref_point):
+        x1, y1 = ref_point[0]
+        x2, y2 = ref_point[1]
+        x1, x2 = sorted([x1, x2])
+        y1, y2 = sorted([y1, y2])
 
-def select_roi_interactive(image, title="选择区域", prompt=None, max_w=1000, max_h=700):
+        orig_x1 = int(x1 / self.scale)
+        orig_y1 = int(y1 / self.scale)
+        orig_x2 = int(x2 / self.scale)
+        orig_y2 = int(y2 / self.scale)
+
+        h, w = self.original_image.shape[:2]
+        orig_x1 = max(0, min(orig_x1, w - 1))
+        orig_y1 = max(0, min(orig_y1, h - 1))
+        orig_x2 = max(0, min(orig_x2, w - 1))
+        orig_y2 = max(0, min(orig_y2, h - 1))
+
+        return (orig_x1, orig_y1, orig_x2, orig_y2)
+
+    def _scale_roi_to_display(self, roi):
+        x1, y1, x2, y2 = roi
+        return (int(x1 * self.scale), int(y1 * self.scale),
+                int(x2 * self.scale), int(y2 * self.scale))
+
+
+def select_roi_interactive(image, title="Select Region", prompt=None,
+                            max_w=1000, max_h=700, allow_multiple=False):
     selector = ROISelector(title, max_width=max_w, max_height=max_h)
-    return selector.select_roi(image, prompt)
+    return selector.select_roi(image, prompt, allow_multiple=allow_multiple)
 
 
 def crop_roi(image, roi):

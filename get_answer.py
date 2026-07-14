@@ -156,26 +156,30 @@ def main():
         )
 
         print("\n" + "=" * 60)
-        print("【主观题识别结果】")
+        print("【Subjective Results】")
         print("=" * 60)
         for res in subjective_results:
             idx = res["index"]
-            if res["text"]:
-                text = res["text"]
-            elif res["roi"] is None:
-                text = "(未选择区域)"
-            else:
-                text = "(OCR 未安装，跳过文字识别)"
-            print(f"\n--- 主观题 {idx} ---")
-            print(text)
+            rois = res.get("rois", [])
+            texts = res.get("texts", [])
+            if not rois:
+                print(f"\n--- Subjective Q{idx} --- (no region selected)")
+                continue
+            print(f"\n--- Subjective Q{idx} --- ({len(rois)} region(s))")
+            for j, text in enumerate(texts):
+                if text:
+                    print(f"\n  [Region #{j+1}]")
+                    print(f"  {text}")
+                else:
+                    print(f"\n  [Region #{j+1}] (no text recognized)")
 
         print("\n" + "=" * 60)
-        print("【客观题结果】")
+        print("【Objective Results】")
         print("=" * 60)
-        print("[INFO] 学生答案:", " ".join(student_answers))
-        print("[INFO] 正确答案:",
+        print("[INFO] Student:", " ".join(student_answers))
+        print("[INFO] Answer: ",
               " ".join([ANSWER_LETTERS[answer_key[q]] for q in range(num_questions)]))
-        print("[INFO] score: {:.2f}%".format(score))
+        print("[INFO] Score: {:.2f}%".format(score))
 
         cv2.imshow("Original", image)
         cv2.imshow("Exam", result_img)
@@ -209,3 +213,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    

@@ -9,8 +9,8 @@ def ask_subjective_count():
     root = tk.Tk()
     root.withdraw()
     result = simpledialog.askinteger(
-        "主观题数量",
-        "请输入主观题数量：",
+        "Subjective Count",
+        "Number of subjective questions:",
         minvalue=0,
         maxvalue=100,
         parent=root,
@@ -24,10 +24,10 @@ def ask_mode():
     root = tk.Tk()
     root.withdraw()
     result = messagebox.askyesno(
-        "选择模式",
-        "是否包含主观题？\n\n"
-        "是：手动框选主观题 + 客观题区域\n"
-        "否：仅自动识别客观题（全图检测）",
+        "Select Mode",
+        "Contains subjective questions?\n\n"
+        "Yes: Manually select subjective + objective regions\n"
+        "No: Auto-detect objective questions (full image)",
     )
     return result
 
@@ -38,56 +38,64 @@ def process_subjective_questions(image, num_questions):
 
     has_ocr = ocr_available()
     if not has_ocr:
-        print("[WARNING] OCR 不可用，仅框选区域，不进行文字识别")
-        print("         安装命令: pip install paddleocr paddlepaddle")
+        print("[WARNING] OCR not available, only select regions (no text recognition)")
+        print("         Install: pip install rapidocr-onnxruntime")
 
     results = []
     for i in range(num_questions):
-        prompt = f"第 {i+1}/{num_questions} 道主观题\n框选后按回车确认"
-        roi = select_roi_interactive(
+        prompt = f"Subjective Q{i+1}/{num_questions}\nDrag to select, Enter to add region, N to finish"
+        rois = select_roi_interactive(
             image,
-            title=f"主观题 {i+1}",
+            title=f"Subjective Q{i+1}",
             prompt=prompt,
+            allow_multiple=True,
         )
-        if roi is None:
-            print(f"[INFO] 主观题 {i+1} 未选择，跳过")
-            results.append({"index": i + 1, "roi": None, "text": None})
+
+        if not rois:
+            print(f"[INFO] Subjective Q{i+1} skipped (no region selected)")
+            results.append({"index": i + 1, "rois": [], "texts": []})
             continue
 
-        cropped = crop_roi(image, roi)
-        if cropped is None or cropped.size == 0:
-            print(f"[WARNING] 主观题 {i+1} 区域无效")
-            results.append({"index": i + 1, "roi": roi, "text": None})
-            continue
+        texts = []
+        for j, roi in enumerate(rois):
+            cropped = crop_roi(image, roi)
+            if cropped is None or cropped.size == 0:
+                print(f"[WARNING] Q{i+1} region #{j+1} invalid")
+                texts.append(None)
+                continue
 
-        text = None
-        if has_ocr:
-            print(f"[INFO] 正在识别主观题 {i+1} ...")
-            text = ocr_recognize(cropped)
+            text = None
+            if has_ocr:
+                print(f"[INFO] Recognizing Q{i+1} region #{j+1} ...")
+                text = ocr_recognize(cropped)
+            texts.append(text)
 
-        results.append({"index": i + 1, "roi": roi, "text": text})
+        results.append({"index": i + 1, "rois": rois, "texts": texts})
 
-        print(f"\n{'='*50}")
-        print(f"【主观题 {i+1}】")
-        print(f"{'='*50}")
-        if text:
-            print(text)
-        elif has_ocr:
-            print("(未识别到文字)")
-        else:
-            print("(OCR 未安装，跳过文字识别)")
-        print(f"{'='*50}\n")
+        print(f"\n{'='*60}")
+        print(f"【Subjective Q{i+1}】 ({len(rois)} region(s))")
+        print(f"{'='*60}")
+        for j, text in enumerate(texts):
+            if text:
+                print(f"\n--- Region #{j+1} ---")
+                print(text)
+        if not any(texts):
+            if has_ocr:
+                print("(No text recognized)")
+            else:
+                print("(OCR not installed, text recognition skipped)")
+        print(f"{'='*60}\n")
 
     return results
 
 
 def select_objective_region(image):
-    prompt = "框选客观题区域，按回车确认"
+    prompt = "Select objective region, Enter to confirm"
     roi = select_roi_interactive(
         image,
-        title="选择客观题区域",
+        title="Select Objective Region",
         prompt=prompt,
     )
     if roi is None:
-        print("[WARNING] 未选择客观题区域")
+        print("[WARNING] No objective region selected")
     return roi
