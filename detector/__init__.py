@@ -1,5 +1,5 @@
 from detector.sheet_detector import find_sheet, warp_sheet
-from detector.bubble_detector import detect_bubbles
+from detector.bubble_detector import detect_bubbles, detect_rect_options, detect_options
 from detector.layout import cluster_into_columns
 from detector.grading import grade_answers, visualize_results
 from detector.subjective import (
@@ -15,6 +15,8 @@ __all__ = [
     "find_sheet",
     "warp_sheet",
     "detect_bubbles",
+    "detect_rect_options",
+    "detect_options",
     "cluster_into_columns",
     "grade_answers",
     "visualize_results",

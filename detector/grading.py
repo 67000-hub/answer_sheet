@@ -20,7 +20,7 @@ def is_bubbled(totals):
 
 
 def grade_answers(all_questions, thresh, answer_key, answer_letters,
-                  num_questions, debug=False):
+                  num_questions, debug=False, shape_type="circle"):
     student_answers = []
     correct = 0
     num_grade = min(len(all_questions), num_questions)
@@ -29,7 +29,7 @@ def grade_answers(all_questions, thresh, answer_key, answer_letters,
         cnts = all_questions[q]
         totals = []
         for c in cnts:
-            total, _ = get_bubble_fill(thresh, c)
+            total, _ = get_bubble_fill(thresh, c, shape_type=shape_type)
             totals.append(total)
 
         bubbled, max_total, avg_others = is_bubbled(totals)
@@ -51,7 +51,7 @@ def grade_answers(all_questions, thresh, answer_key, answer_letters,
 
 
 def visualize_results(warped_bgr, all_questions, thresh, answer_key,
-                      answer_letters, num_questions, score):
+                      answer_letters, num_questions, score, shape_type="circle"):
     num_grade = min(len(all_questions), num_questions)
 
     for q in range(num_grade):
@@ -62,19 +62,29 @@ def visualize_results(warped_bgr, all_questions, thresh, answer_key,
 
         totals = []
         for c in cnts:
-            total, _ = get_bubble_fill(thresh, c)
+            total, _ = get_bubble_fill(thresh, c, shape_type=shape_type)
             totals.append(total)
 
         bubbled, _, _ = is_bubbled(totals)
         bubbled_idx = totals.index(max(totals)) if bubbled else None
 
         if bubbled:
-            cv2.drawContours(warped_bgr, [cnts[bubbled_idx]], -1,
-                             DRAW_COLOR_STUDENT, DRAW_THICKNESS_STUDENT)
+            if shape_type == "rect":
+                (x, y, w, h) = cv2.boundingRect(cnts[bubbled_idx])
+                cv2.rectangle(warped_bgr, (x, y), (x + w, y + h),
+                              DRAW_COLOR_STUDENT, DRAW_THICKNESS_STUDENT)
+            else:
+                cv2.drawContours(warped_bgr, [cnts[bubbled_idx]], -1,
+                                 DRAW_COLOR_STUDENT, DRAW_THICKNESS_STUDENT)
 
         is_correct = bubbled and k == bubbled_idx
         color = DRAW_COLOR_CORRECT if is_correct else DRAW_COLOR_WRONG
-        cv2.drawContours(warped_bgr, [cnts[k]], -1, color, DRAW_THICKNESS_ANSWER)
+        if shape_type == "rect":
+            (x, y, w, h) = cv2.boundingRect(cnts[k])
+            cv2.rectangle(warped_bgr, (x, y), (x + w, y + h),
+                          color, DRAW_THICKNESS_ANSWER)
+        else:
+            cv2.drawContours(warped_bgr, [cnts[k]], -1, color, DRAW_THICKNESS_ANSWER)
 
     cv2.putText(warped_bgr, "{:.2f}%".format(score), (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, DRAW_COLOR_WRONG, 2)

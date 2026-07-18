@@ -2,15 +2,16 @@ import cv2
 import tkinter as tk
 from tkinter import filedialog, simpledialog, messagebox
 
-from config import ANSWER_LETTERS, NUM_OPTIONS
+from config import ANSWER_LETTERS, NUM_OPTIONS, SHEET_TYPE_CIRCLE, SHEET_TYPE_RECT
 from detector import (
-    find_sheet, warp_sheet, detect_bubbles,
+    find_sheet, warp_sheet, detect_options,
     cluster_into_columns, grade_answers, visualize_results,
     ask_mode, ask_subjective_count,
     process_subjective_questions, select_objective_region,
     list_templates, load_template, create_template,
 )
 from utils import crop_roi
+from utils.viz import resize_for_display
 from utils.ocr import ocr_recognize, ocr_available
 
 
@@ -45,7 +46,7 @@ def input_answers():
     root.withdraw()
     answer_input = simpledialog.askstring(
         "Input Answers",
-        f"Enter correct answers (use {'/'.join(ANSWER_LETTERS)}, comma/space separated)\n"
+        f"Enter correct answers ({'/'.join(ANSWER_LETTERS)}, comma/space separated)\n"
         f"e.g. B,D,A,C",
         parent=root,
     )
@@ -74,7 +75,19 @@ def ask_run_mode():
         "No: Manual mode (select regions each time)\n"
         "Cancel: Create new template",
     )
-    return result  # True=use template, False=manual, None=create template
+    return result
+
+
+def ask_sheet_type():
+    root = tk.Tk()
+    root.withdraw()
+    result = messagebox.askyesno(
+        "Select Sheet Type",
+        "Answer sheet type:\n\n"
+        "Yes: Rectangular brackets [A][B][C][D]\n"
+        "No: Circular bubbles",
+    )
+    return SHEET_TYPE_RECT if result else SHEET_TYPE_CIRCLE
 
 
 def select_template():
@@ -107,14 +120,15 @@ def select_template():
     return None
 
 
-def process_objective_full(image, answer_key, num_questions, debug=True):
+def process_objective_full(image, answer_key, num_questions,
+                           sheet_type=SHEET_TYPE_CIRCLE, debug=True):
     docCnt, gray = find_sheet(image, debug=debug)
     if docCnt is None:
         print("[ERROR] Answer sheet border not detected")
         return None
 
     warped = warp_sheet(gray, docCnt, debug=debug)
-    questionCnts, thresh = detect_bubbles(warped, debug=debug)
+    questionCnts, thresh = detect_options(warped, sheet_type=sheet_type, debug=debug)
 
     all_questions = cluster_into_columns(
         questionCnts, num_options=NUM_OPTIONS,
@@ -129,12 +143,14 @@ def process_objective_full(image, answer_key, num_questions, debug=True):
     student_answers, correct, score = grade_answers(
         all_questions, thresh, answer_key,
         ANSWER_LETTERS, num_questions, debug=debug,
+        shape_type=sheet_type,
     )
 
     return warped, thresh, all_questions, student_answers, correct, score
 
 
-def process_objective_roi(image, roi, answer_key, num_questions, debug=True):
+def process_objective_roi(image, roi, answer_key, num_questions,
+                          sheet_type=SHEET_TYPE_CIRCLE, debug=True):
     cropped = crop_roi(image, roi)
     if cropped is None or cropped.size == 0:
         print("[ERROR] Objective region invalid")
@@ -147,7 +163,7 @@ def process_objective_roi(image, roi, answer_key, num_questions, debug=True):
         from utils.viz import cv_show
         cv_show('objective_roi', cropped)
 
-    questionCnts, thresh = detect_bubbles(warped, debug=debug)
+    questionCnts, thresh = detect_options(warped, sheet_type=sheet_type, debug=debug)
 
     all_questions = cluster_into_columns(
         questionCnts, num_options=NUM_OPTIONS,
@@ -162,6 +178,7 @@ def process_objective_roi(image, roi, answer_key, num_questions, debug=True):
     student_answers, correct, score = grade_answers(
         all_questions, thresh, answer_key,
         ANSWER_LETTERS, num_questions, debug=debug,
+        shape_type=sheet_type,
     )
 
     return warped, thresh, all_questions, student_answers, correct, score
@@ -173,10 +190,10 @@ def run_with_template(image, template, debug=False):
     num_subjective = template.get("num_subjective", 0)
     objective_roi = template.get("objective_roi")
     subjective_rois = template.get("subjective_rois", [])
+    sheet_type = template.get("sheet_type", SHEET_TYPE_CIRCLE)
 
     has_ocr = ocr_available()
 
-    # Process subjective questions using template ROIs
     subjective_results = []
     if num_subjective > 0 and subjective_rois:
         for i in range(min(num_subjective, len(subjective_rois))):
@@ -198,13 +215,16 @@ def run_with_template(image, template, debug=False):
                 "texts": texts,
             })
 
-    # Process objective questions using template ROI
     if objective_roi:
         result = process_objective_roi(
-            image, objective_roi, answer_key, num_questions, debug=debug,
+            image, objective_roi, answer_key, num_questions,
+            sheet_type=sheet_type, debug=debug,
         )
     else:
-        result = process_objective_full(image, answer_key, num_questions, debug=debug)
+        result = process_objective_full(
+            image, answer_key, num_questions,
+            sheet_type=sheet_type, debug=debug,
+        )
 
     return result, subjective_results, answer_key, num_questions
 
@@ -213,7 +233,7 @@ def print_results(subjective_results, student_answers, answer_key,
                   num_questions, score, has_subjective=True):
     if has_subjective and subjective_results:
         print("\n" + "=" * 60)
-        print("【Subjective Results】")
+        print("Subjective Results")
         print("=" * 60)
         for res in subjective_results:
             idx = res["index"]
@@ -231,7 +251,7 @@ def print_results(subjective_results, student_answers, answer_key,
                     print(f"\n  [Region #{j+1}] (no text recognized)")
 
     print("\n" + "=" * 60)
-    print("【Objective Results】")
+    print("Objective Results")
     print("=" * 60)
     print("[INFO] Student:", " ".join(student_answers))
     print("[INFO] Answer: ",
@@ -240,20 +260,22 @@ def print_results(subjective_results, student_answers, answer_key,
 
 
 def show_results(image, warped, all_questions, thresh, answer_key,
-                 num_questions, score):
+                 num_questions, score, sheet_type=SHEET_TYPE_CIRCLE):
     warped_bgr = cv2.cvtColor(warped, cv2.COLOR_GRAY2BGR)
     result_img = visualize_results(
         warped_bgr, all_questions, thresh, answer_key,
         ANSWER_LETTERS, num_questions, score,
+        shape_type=sheet_type,
     )
-    cv2.imshow("Original", image)
-    cv2.imshow("Exam", result_img)
+    display_image, _ = resize_for_display(image)
+    display_result, _ = resize_for_display(result_img)
+    cv2.imshow("Original", display_image)
+    cv2.imshow("Exam", display_result)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
 
 def main():
-    # Step 1: Select run mode
     run_mode = ask_run_mode()
 
     if run_mode is None:
@@ -269,6 +291,7 @@ def main():
             exit()
 
         answer_key, num_questions = input_answers()
+        sheet_type = ask_sheet_type()
         has_subjective = ask_mode()
         num_subjective = ask_subjective_count() if has_subjective else 0
 
@@ -287,17 +310,21 @@ def main():
             num_subjective=num_subjective,
             name=template_name,
         )
+        template["sheet_type"] = sheet_type
+        from detector.template import save_template
+        save_template(template)
+
         print(f"\n[INFO] Template '{template_name}' created: {filename}")
         print("[INFO] You can now use this template for batch processing.")
 
-        # Also process the template image itself
         result, subj_results, answer_key, num_questions = run_with_template(
             image, template, debug=False,
         )
         if result:
             warped, thresh, all_questions, student_answers, correct, score = result
             print_results(subj_results, student_answers, answer_key, num_questions, score)
-            show_results(image, warped, all_questions, thresh, answer_key, num_questions, score)
+            show_results(image, warped, all_questions, thresh, answer_key,
+                         num_questions, score, sheet_type=sheet_type)
 
     elif run_mode:
         # Use existing template
@@ -306,6 +333,7 @@ def main():
             print("[ERROR] No template selected, exiting")
             exit()
 
+        sheet_type = template.get("sheet_type", SHEET_TYPE_CIRCLE)
         image_paths = select_images()
         num_subjective = template.get("num_subjective", 0)
         has_subjective = num_subjective > 0
@@ -329,12 +357,14 @@ def main():
 
             warped, thresh, all_questions, student_answers, correct, score = result
             print_results(subj_results, student_answers, answer_key, num_questions, score, has_subjective)
-            show_results(image, warped, all_questions, thresh, answer_key, num_questions, score)
+            show_results(image, warped, all_questions, thresh, answer_key,
+                         num_questions, score, sheet_type=sheet_type)
 
     else:
-        # Manual mode (original behavior)
+        # Manual mode
         image_path = select_image()
         answer_key, num_questions = input_answers()
+        sheet_type = ask_sheet_type()
 
         image = cv2.imread(image_path)
         if image is None:
@@ -366,18 +396,23 @@ def main():
                 exit()
 
             result = process_objective_roi(
-                image, objective_roi, answer_key, num_questions, debug=True,
+                image, objective_roi, answer_key, num_questions,
+                sheet_type=sheet_type, debug=True,
             )
             if result is None:
                 exit()
 
             warped, thresh, all_questions, student_answers, correct, score = result
             print_results(subjective_results, student_answers, answer_key, num_questions, score)
-            show_results(image, warped, all_questions, thresh, answer_key, num_questions, score)
+            show_results(image, warped, all_questions, thresh, answer_key,
+                         num_questions, score, sheet_type=sheet_type)
 
         else:
             print("[INFO] Mode: Objective only (full image auto-detect)")
-            result = process_objective_full(image, answer_key, num_questions, debug=True)
+            result = process_objective_full(
+                image, answer_key, num_questions,
+                sheet_type=sheet_type, debug=True,
+            )
             if result is None:
                 exit()
 
@@ -391,9 +426,12 @@ def main():
             result_img = visualize_results(
                 warped_bgr, all_questions, thresh, answer_key,
                 ANSWER_LETTERS, num_questions, score,
+                shape_type=sheet_type,
             )
-            cv2.imshow("Original", image)
-            cv2.imshow("Exam", result_img)
+            display_image, _ = resize_for_display(image)
+            display_result, _ = resize_for_display(result_img)
+            cv2.imshow("Original", display_image)
+            cv2.imshow("Exam", display_result)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
